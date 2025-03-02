@@ -12,6 +12,12 @@ using WDocument = Syncfusion.DocIO.DLS.WordDocument;
 using WFormatType = Syncfusion.DocIO.FormatType;
 using Syncfusion.EJ2.SpellChecker;
 
+using Amazon;
+using Amazon.S3;
+using Amazon.S3.Model;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Caching.Memory;
+
 namespace EJ2DocumentEditorServer.Controllers
 {
     [Route("api/[controller]")]
@@ -19,10 +25,53 @@ namespace EJ2DocumentEditorServer.Controllers
     {
         private readonly IHostingEnvironment _hostingEnvironment;
         string path;
-        public DocumentEditorController(IHostingEnvironment hostingEnvironment)
+
+        private IConfiguration _configuration;
+        public readonly string _accessKey;
+        public readonly string _secretKey;
+        public readonly string _bucketName;
+
+        public DocumentEditorController(IHostingEnvironment hostingEnvironment, IConfiguration configuration)
         {
             _hostingEnvironment = hostingEnvironment;
             path = Startup.path;
+            _configuration = configuration;
+            _accessKey = _configuration.GetValue<string>("AccessKey");
+            _secretKey = _configuration.GetValue<string>("SecretKey");
+            _bucketName = _configuration.GetValue<string>("BucketName");
+        }
+
+        //Post action for Loading the documents
+        [AcceptVerbs("Post")]
+        [HttpPost]
+        [EnableCors("AllowAllOrigins")]
+        [Route("LoadFromS3")]
+        public async Task<string> LoadFromS3([FromBody] Dictionary<string, string> jsonObject)
+        {
+            MemoryStream stream = new MemoryStream();
+
+            if (jsonObject == null && !jsonObject.ContainsKey("documentName"))
+            {
+                return null;
+            }
+            RegionEndpoint bucketRegion = RegionEndpoint.USEast1;
+
+            // Configure the AWS SDK with your access credentials and other settings
+            var s3Client = new AmazonS3Client(_accessKey, _secretKey, bucketRegion);
+
+            string documentName = jsonObject["documentName"];
+
+            // Specify the document name or retrieve it from a different source
+            var response = await s3Client.GetObjectAsync(_bucketName, documentName);
+
+            Stream responseStream = response.ResponseStream;
+            responseStream.CopyTo(stream);
+            stream.Seek(0, SeekOrigin.Begin);
+            WordDocument document = WordDocument.Load(stream, FormatType.Docx);
+            string json = Newtonsoft.Json.JsonConvert.SerializeObject(document);
+            document.Dispose();
+            stream.Close();
+            return json;
         }
 
         [AcceptVerbs("Post")]
@@ -99,7 +148,7 @@ namespace EJ2DocumentEditorServer.Controllers
                 return "{\"SpellCollection\":[],\"HasSpellingError\":false,\"Suggestions\":null}";
             }
         }
-		// GET api/values
+        // GET api/values
         [HttpGet]
         public IEnumerable<string> Get()
         {
@@ -144,7 +193,7 @@ namespace EJ2DocumentEditorServer.Controllers
         [HttpPost]
         [EnableCors("AllowAllOrigins")]
         [Route("SystemClipboard")]
-        public string SystemClipboard([FromBody]CustomParameter param)
+        public string SystemClipboard([FromBody] CustomParameter param)
         {
             if (param.content != null && param.content != "")
             {
@@ -181,7 +230,7 @@ namespace EJ2DocumentEditorServer.Controllers
         [HttpPost]
         [EnableCors("AllowAllOrigins")]
         [Route("RestrictEditing")]
-        public string[] RestrictEditing([FromBody]CustomRestrictParameter param)
+        public string[] RestrictEditing([FromBody] CustomRestrictParameter param)
         {
             if (param.passwordBase64 == "" && param.passwordBase64 == null)
                 return null;
@@ -208,7 +257,7 @@ namespace EJ2DocumentEditorServer.Controllers
         [Route("LoadDocument")]
         public string LoadDocument([FromForm] UploadDocument uploadDocument)
         {
-            string documentPath= Path.Combine(path, uploadDocument.DocumentName);
+            string documentPath = Path.Combine(path, uploadDocument.DocumentName);
             Stream stream = null;
             if (System.IO.File.Exists(documentPath))
             {
