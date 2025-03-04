@@ -54,7 +54,7 @@ namespace EJ2DocumentEditorServer.Controllers
             {
                 return null;
             }
-            RegionEndpoint bucketRegion = RegionEndpoint.USEast1;
+            RegionEndpoint bucketRegion = RegionEndpoint.APSoutheast2;
 
             // Configure the AWS SDK with your access credentials and other settings
             var s3Client = new AmazonS3Client(_accessKey, _secretKey, bucketRegion);
